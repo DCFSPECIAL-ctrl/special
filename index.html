@@ -42,6 +42,9 @@ h1,h2,h3{margin:0}
 .ctrl:disabled{background:var(--bg);color:var(--muted)}
 textarea.ctrl{min-height:70px;resize:vertical;font-weight:500}
 .g2{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
 .btn{font-weight:700;font-size:13.5px;padding:10px 18px;border-radius:10px;transition:.15s;
   display:inline-flex;align-items:center;justify-content:center;gap:6px}
 .btn.primary{background:var(--ci);color:#fff;box-shadow:var(--shadow)}
@@ -653,6 +656,23 @@ function toast(m,bad){const t=$('#toast');t.textContent=m;t.className=bad?'on ba
   clearTimeout(t._i);t._i=setTimeout(()=>t.className='',2800);}
 const canEdit=r=>me&&(me.role==='admin'||r.branch===me.branch);
 
+/* 숫자 입력칸: 천단위 콤마를 넣으면서 커서 위치를 지킵니다 */
+function numInput(el){
+  const digits=el.value.replace(/[^0-9]/g,'');
+  const caret=el.selectionStart==null?el.value.length:el.selectionStart;
+  const before=el.value.slice(0,caret).replace(/[^0-9]/g,'').length;
+  const out=digits?Number(digits).toLocaleString('ko-KR'):'';
+  el.value=out;
+  let pos=out.length;
+  if(before===0)pos=0;
+  else{let seen=0;
+    for(let i=0;i<out.length;i++){
+      const c=out.charCodeAt(i);
+      if(c>=48&&c<=57){seen++;if(seen===before){pos=i+1;break;}}}}
+  try{el.setSelectionRange(pos,pos);}catch(_){}
+  return digits?Number(digits):0;
+}
+
 /* ═══ 2. 기간 ═══ */
 const PERIODS=[
   {k:'month',n:'당월'},{k:'prev',n:'전월'},{k:'q',n:'최근 3개월'},
@@ -682,8 +702,8 @@ function pbarHTML(){
   return `<span class="pl">조회 기간</span>`
     + PERIODS.map(p=>`<button data-pm="${p.k}" class="${period.mode===p.k?'on':''}">${p.n}</button>`).join('')
     + (period.mode==='custom'
-      ? `<input type="date" data-pf value="${r.from}"><span style="color:var(--muted);font-size:12px">~</span>
-         <input type="date" data-pt value="${r.to}">`:'')
+      ? `<input type="date" data-pf min="${loadFrom()}" value="${r.from}"><span style="color:var(--muted);font-size:12px">~</span>
+         <input type="date" data-pt min="${loadFrom()}" value="${r.to}">`:'')
     + `<span class="rng">${r.from} ~ ${r.to}</span>`;
 }
 function fpbHTML(){
@@ -709,14 +729,21 @@ async function connect(){
     import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js')]);
   const app=initializeApp(FIREBASE_CONFIG);
   await signInAnonymously(getAuth(app));
-  db=fs.getFirestore(app); fb=fs; return true;
+  db=fs.initializeFirestore(app,{localCache:fs.persistentLocalCache(
+    {tabManager:fs.persistentMultipleTabManager()})});
+  fb=fs; return true;
 }
 const col=n=>fb.collection(db,n);
 const ref=(n,id)=>fb.doc(db,n,id);
-function watch(n,apply){
-  fb.onSnapshot(col(n),s=>{apply(s.docs.map(d=>({id:d.id,...d.data()})));draw();},
+function watch(n,apply){ watchQ(n,col(n),apply); }
+function watchQ(n,q,apply){
+  fb.onSnapshot(q,s=>{apply(s.docs.map(d=>({id:d.id,...d.data()})));draw();},
     e=>{console.error(n,e);toast('데이터를 불러오지 못했습니다',1);});
 }
+/* 읽기량 절약: 전년 1월 1일 이후 납품만 구독합니다.
+   더 예전 자료까지 봐야 하면 아래 연도 수를 늘리세요. */
+const LOAD_YEARS_BACK = 1;
+const loadFrom = () => (new Date().getFullYear() - LOAD_YEARS_BACK) + '-01-01';
 
 /* ═══ 사진 ═══ */
 function shrink(file){return new Promise((ok,no)=>{
@@ -1032,19 +1059,32 @@ function openDelivery(row){
         :`<div class="empty" style="padding:20px">검색 결과가 없습니다.</div>`;};
     const paintPicked=()=>{
       $('#d-pk').innerHTML=picked.map((p,i)=>{const c=calc(p);
-        return `<div class="pcard">
+        return `<div class="pcard" data-row="${i}">
           <div class="ph"><span class="pn" title="${esc(p.name)}">${esc(p.name)}</span>
             <button type="button" class="px" data-x="${i}" aria-label="빼기">✕</button></div>
           <div class="pg">
             <div><label>입수단위</label><select data-k="${i}">${packOpts(p.packName)}</select></div>
-            <div><label>수량 (단위)</label><input type="number" min="1" data-q="${i}" value="${p.qty||1}"></div>
-            <div><label>납품단가 (단위당)</label><input type="number" min="0" data-u="${i}" value="${p.unitPrice||0}"></div>
+            <div><label>수량 (단위)</label>
+              <input type="text" inputmode="numeric" data-q="${i}" placeholder="0"
+                value="${p.qty?won(p.qty):''}"></div>
+            <div><label>납품단가 (단위당)</label>
+              <input type="text" inputmode="numeric" data-u="${i}" placeholder="0"
+                value="${p.unitPrice?won(p.unitPrice):''}"></div>
           </div>
-          <div class="pf"><span>총 <b>${won(c.bottles)}</b>본</span>
-            <span>본당 <b>${won(c.perBottle)}</b>원</span>
-            <span class="amt">${won(c.total)}원</span></div></div>`;}).join('');
+          <div class="pf"><span>총 <b data-cb>${won(c.bottles)}</b>본</span>
+            <span>본당 <b data-cp>${won(c.perBottle)}</b>원</span>
+            <span class="amt" data-ca>${won(c.total)}원</span></div></div>`;}).join('');
       $('#d-pc').textContent=picked.length+'개';
-      $('#d-sum').textContent=won(picked.reduce((s,p)=>s+calc(p).total,0))+'원';};
+      sumUp();};
+    const sumUp=()=>{$('#d-sum').textContent=
+      won(picked.reduce((s,p)=>s+calc(p).total,0))+'원';};
+    const refreshRow=i=>{
+      const card=$(`#d-pk [data-row="${i}"]`);
+      if(card){const c=calc(picked[i]);
+        card.querySelector('[data-cb]').textContent=won(c.bottles);
+        card.querySelector('[data-cp]').textContent=won(c.perBottle);
+        card.querySelector('[data-ca]').textContent=won(c.total)+'원';}
+      sumUp();};
     paintList();
     picked.forEach(p=>{if(!p.packName&&usePacks[0]){p.packName=usePacks[0].name;p.pack=usePacks[0].count;}});
     paintPicked();
@@ -1057,14 +1097,19 @@ function openDelivery(row){
       else picked=picked.filter(p=>p.name!==name);
       paintPicked();});
     $('#d-pk').addEventListener('input',e=>{
-      const q=e.target.closest('[data-q]'),u=e.target.closest('[data-u]');
-      if(q)picked[+q.dataset.q].qty=+q.value||0;
-      if(u)picked[+u.dataset.u].unitPrice=+u.value||0;
-      if(q||u)paintPicked();});
+      const el=e.target;
+      const isQ=el.matches('[data-q]'), isU=el.matches('[data-u]');
+      if(!isQ&&!isU)return;
+      const v=numInput(el);
+      const i=+(isQ?el.dataset.q:el.dataset.u);
+      if(isQ)picked[i].qty=v; else picked[i].unitPrice=v;
+      refreshRow(i);});
+    $('#d-pk').addEventListener('focusin',e=>{
+      if(e.target.matches('[data-q],[data-u]'))e.target.select();});
     $('#d-pk').addEventListener('change',e=>{
       const k=e.target.closest('[data-k]');if(!k)return;
       const i=+k.dataset.k,o=k.selectedOptions[0];
-      picked[i].packName=k.value;picked[i].pack=+o.dataset.c||1;paintPicked();});
+      picked[i].packName=k.value;picked[i].pack=+o.dataset.c||1;refreshRow(i);});
     $('#d-pk').addEventListener('click',e=>{
       const x=e.target.closest('[data-x]');if(!x)return;
       picked.splice(+x.dataset.x,1);paintPicked();paintList();});
@@ -1381,7 +1426,9 @@ async function boot(){
     watch('items',v=>items=v.sort((a,b)=>String(a.name).localeCompare(String(b.name),'ko')));
     watch('packs',v=>packs=v.sort((a,b)=>(a.count||0)-(b.count||0)));
     watch('accounts',v=>accounts=v);
-    watch('deliveries',v=>deliveries=v);
+    watchQ('deliveries',
+      fb.query(col('deliveries'),fb.where('date','>=',loadFrom())),
+      v=>deliveries=v);
   }else{sample();$('#lhint').textContent='연결 설정 전 · 샘플 admin/admin1234 · 202601/1234';}
   const saved=sessionStorage.getItem('sa_no');
   if(saved){const t=setInterval(()=>{const u=staff.find(s=>String(s.empNo)===saved);
