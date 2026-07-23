@@ -1,0 +1,33 @@
+{
+  "id": "/special/",
+  "name": "정식품 특수처 납품 관리",
+  "short_name": "특수처",
+  "description": "영업소별 특수처 납품 실적 관리",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0B2545",
+  "theme_color": "#009C3C",
+  "lang": "ko",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
