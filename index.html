@@ -972,14 +972,29 @@ function filt(b,t,q){
       if(!hay.includes(q.toLowerCase()))return false;}
     return true;}).sort(newest);
 }
+/* 검색어가 품목명에 걸리면 그 품목 줄만 남긴다.
+   거래처·담당 등 건 단위 정보에 걸린 경우는 전체 품목을 보여준다. */
+function visibleItems(d,q){
+  const its=(d.items&&d.items.length)?d.items:[{name:'—',bottles:bottles(d),perBottle:0,total:d.total}];
+  if(!q)return its;
+  const ql=q.toLowerCase();
+  const hitItems=its.filter(i=>String(i.name).toLowerCase().includes(ql));
+  if(hitItems.length)return hitItems;          // 품목명 매칭 → 그 줄만
+  return its;                                   // 거래처·담당 매칭 → 전체 줄
+}
 const hqFilt=()=>filt($('#f-b').value,$('#f-t').value,$('#f-q').value.trim());
 function list(){
-  const rows=hqFilt(), a=agg(rows);
-  $('#f-cnt').textContent=`${won(a.cnt)}건 · ${won(a.btl)}본 · ${won(a.amt)}원`;
+  const rows=hqFilt(), q=$('#f-q').value.trim();
   const html=[];
+  let sumCnt=0,sumBtl=0,sumAmt=0;
   rows.forEach(d=>{
-    const its=(d.items&&d.items.length)?d.items:[{name:'—',bottles:bottles(d),perBottle:0,total:d.total}];
+    const its=visibleItems(d,q);
+    if(!its.length)return;
     const mine=d.branch===me.branch;
+    // 표시되는 품목 기준 합계 (검색 시 부분 합계가 됨)
+    const dBtl=its.reduce((s,i)=>s+(+i.bottles||0),0);
+    const dAmt=its.reduce((s,i)=>s+(+i.total||0),0);
+    sumCnt++; sumBtl+=dBtl; sumAmt+=dAmt;
     its.forEach((it,idx)=>{
       const first=idx===0, last=idx===its.length-1;
       const rowspan=its.length;
@@ -991,13 +1006,15 @@ function list(){
         <td class="num nowrap">${won(it.bottles)}</td>
         <td class="num nowrap">${it.perBottle?won(it.perBottle):'—'}</td>
         <td class="num nowrap">${won(it.total)}</td>
-        ${first?`<td class="num nowrap grptot" rowspan="${rowspan}">${won(d.total)}${rowspan>1?`<small>${rowspan}품목</small>`:''}</td>
+        ${first?`<td class="num nowrap grptot" rowspan="${rowspan}">${won(dAmt)}${rowspan>1?`<small>${rowspan}품목</small>`:''}</td>
           <td class="nowrap" rowspan="${rowspan}">${esc(d.manager||'—')}</td>
           <td class="num nowrap" rowspan="${rowspan}"><button class="linkbtn" data-view="${d.id}">보기</button>
             ${canEdit(d)?`<button class="linkbtn" data-edit="${d.id}">수정</button>`:''}</td>`:''}
       </tr>`);
     });
   });
+  $('#f-cnt').textContent=`${won(sumCnt)}건 · ${won(sumBtl)}본 · ${won(sumAmt)}원`
+    +(q?' (검색 품목 기준)':'');
   $('#list-body').innerHTML=html.length?html.join('')
     :`<tr><td colspan="10" class="empty">조건에 맞는 내역이 없습니다.</td></tr>`;
 }
@@ -1498,8 +1515,8 @@ async function delStaff(s){if(!confirm(`${s.name}(${s.empNo}) 계정을 삭제�
 
 /* ═══ 12. 엑셀 ═══ */
 $('#b-xls').addEventListener('click',()=>{
-  const out=[];
-  hqFilt().forEach(d=>(d.items||[]).forEach(i=>out.push({
+  const out=[]; const q=$('#f-q').value.trim();
+  hqFilt().forEach(d=>visibleItems(d,q).forEach(i=>out.push({
     '납품일자':d.date,'영업소':d.branch,'특수처명':d.accountName,'유형':d.accountType,
     '품목':i.name,'입수단위':i.packName,'입수(본)':i.pack,'수량':i.qty,
     '납품단가':i.unitPrice,'총본수':i.bottles,'본당단가':i.perBottle,'금액':i.total,
