@@ -931,7 +931,7 @@ function trend6(){
                   label:`${d.getMonth()+1}월`,v:0});
   }
   const idx={};buckets.forEach((b,i)=>idx[b.ym]=i);
-  deliveries.forEach(d=>{const k=ym(d.date);if(k in idx)buckets[idx[k]].v+=(+d.total||0);});
+  deliveries.forEach(d=>{const k=String(d.date||'').slice(0,7);if(k in idx)buckets[idx[k]].v+=(+d.total||0);});
   const mx=Math.max(...buckets.map(b=>b.v),1);
   $('#trend').innerHTML=`<div class="tr6">`+buckets.map(b=>`
     <div class="trcol"><span class="trv">${b.v?man(b.v):''}</span>
